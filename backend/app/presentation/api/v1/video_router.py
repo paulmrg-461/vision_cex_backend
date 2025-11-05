@@ -1,7 +1,11 @@
 from typing import Optional, Tuple
 
 import cv2
-from fastapi import APIRouter, Response
+import os
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+import time
 
 from app.core.di.service_locator import ServiceLocator
 from app.core.utils.logger import get_logger
@@ -22,12 +26,46 @@ def parse_roi(roi: Optional[str]) -> Optional[Tuple[int, int, int, int]]:
         return None
 
 
-def mjpeg_generator(video_source: int, roi: Optional[str] = None):
+def mjpeg_generator(video_source, roi: Optional[str] = None, fps: Optional[float] = None, loop: bool = False):
+    """Generador MJPEG con detección.
+
+    - Control de cadencia mediante "fps": si se especifica, limita la tasa de envío.
+    - Para fuentes de archivo, si loop=True, rebobina al finalizar.
+    """
     roi_rect = parse_roi(roi)
-    cap = cv2.VideoCapture(video_source)
+    # Allow both integer webcam index (e.g., "0") and string sources (file path/RTSP)
+    src = video_source
+    is_str = isinstance(src, str)
+    if is_str and src.isdigit():
+        src = int(src)
+
+    # Decide backend y tipo de fuente
+    use_ffmpeg = False
+    is_file = False
+    is_url = False
+    if isinstance(src, str):
+        lower = src.lower()
+        is_file = lower.endswith((".mp4", ".avi", ".mov", ".mkv")) or os.path.isfile(src)
+        is_url = lower.startswith("rtsp://") or lower.startswith("http://") or lower.startswith("https://")
+        use_ffmpeg = is_url or is_file
+
+    # Abrir captura con backend apropiado
+    cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG) if use_ffmpeg else cv2.VideoCapture(src)
     if not cap.isOpened():
-        logger.error("No se pudo abrir la cámara: %s", video_source)
+        logger.error("No se pudo abrir la fuente de video: %s", video_source)
         return
+
+    # Determinar FPS efectivo
+    target_fps = fps
+    if target_fps is None:
+        # Intentar leer FPS del archivo/cámara
+        read_fps = cap.get(cv2.CAP_PROP_FPS)
+        if read_fps and read_fps > 0 and read_fps < 120:
+            target_fps = read_fps
+        else:
+            target_fps = 25.0 if is_file else None  # en archivos, por defecto 25; en tiempo real no limitar
+
+    delay = (1.0 / target_fps) if target_fps and target_fps > 0 else 0.0
 
     detect_usecase = ServiceLocator.detect_usecase()
 
@@ -35,36 +73,115 @@ def mjpeg_generator(video_source: int, roi: Optional[str] = None):
         while True:
             ok, frame = cap.read()
             if not ok:
-                logger.error("Error leyendo frame de la cámara.")
-                break
+                if is_file:
+                    logger.info("Fin de archivo o fallo de lectura. loop=%s", loop)
+                    if loop:
+                        # Intentar rebobinar al inicio
+                        reset_ok = cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        if not reset_ok:
+                            # Algunos backends no soportan rebobinado: reabrir captura
+                            cap.release()
+                            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG) if use_ffmpeg else cv2.VideoCapture(src)
+                        # pequeña espera para evitar bucle rápido
+                        time.sleep(0.05)
+                        continue
+                    else:
+                        break
+                else:
+                    logger.error("Error leyendo frame de la cámara/stream.")
+                    # En cámaras/RTSP: intentar un pequeño retry
+                    time.sleep(0.05)
+                    continue
 
+            # Detección y dibujo de cajas
             boxes = detect_usecase.detect(frame, roi=roi_rect)
-            DetectObjectsUseCase = type(detect_usecase)  # for static method access
+            DetectObjectsUseCase = type(detect_usecase)  # acceso al método estático
             DetectObjectsUseCase.draw_boxes(frame, boxes)
 
             # Encode JPEG
             ok, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
             if not ok:
                 logger.error("Error codificando frame a JPEG.")
+                # Avanzar al siguiente frame
                 continue
             frame_bytes = jpg.tobytes()
             yield (
                 b"--frame\r\n"
                 b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
             )
+
+            # Control de cadencia
+            if delay > 0:
+                time.sleep(delay)
+
     finally:
         cap.release()
 
 
-@router.get("/stream", response_class=Response)
-def stream(roi: Optional[str] = None):
+class FileSourceRequest(BaseModel):
+    path: str
+
+
+class RtspSourceRequest(BaseModel):
+    url: str
+
+
+@router.get("/source")
+def get_source():
+    cfg = ServiceLocator.config()
+    return {"video_source": cfg.video_source}
+
+
+@router.post("/source/file")
+def set_source_file(req: FileSourceRequest):
+    path = (req.path or "").strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="Ruta de archivo vacía")
+
+    # Validación rápida: intentar abrir el archivo
+    use_ffmpeg = path.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))
+    cap = cv2.VideoCapture(path, cv2.CAP_FFMPEG) if use_ffmpeg else cv2.VideoCapture(path)
+    ok = cap.isOpened()
+    cap.release()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"No se pudo abrir el archivo de video: {path}")
+
+    cfg = ServiceLocator.config()
+    cfg.video_source = path
+    logger.info("Fuente de video actualizada (archivo): %s", path)
+    return {"message": "Fuente de video actualizada (archivo)", "video_source": cfg.video_source}
+
+
+@router.post("/source/rtsp")
+def set_source_rtsp(req: RtspSourceRequest):
+    url = (req.url or "").strip()
+    if not url or not (url.startswith("rtsp://") or url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="URL inválida. Debe comenzar con rtsp://, http:// o https://")
+
+    # Validación rápida con backend FFMPEG
+    cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+    ok = cap.isOpened()
+    cap.release()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"No se pudo abrir la URL RTSP/HTTP: {url}")
+
+    cfg = ServiceLocator.config()
+    cfg.video_source = url
+    logger.info("Fuente de video actualizada (RTSP/HTTP): %s", url)
+    return {"message": "Fuente de video actualizada (RTSP/HTTP)", "video_source": cfg.video_source}
+
+
+@router.get("/stream")
+def stream(roi: Optional[str] = None, fps: Optional[float] = None, loop: bool = False):
     """Devuelve un stream MJPEG de la cámara con detección y cajas dibujadas.
 
     Parámetros:
     - roi: "x,y,w,h" para limitar la detección a una región del frame.
+    - fps: límite de frames por segundo (solo aplicable si se especifica o si la fuente es archivo).
+    - loop: si la fuente es un archivo, rebobina al finalizar.
     """
     cfg = ServiceLocator.config()
-    return Response(
-        content=mjpeg_generator(cfg.video_source, roi=roi),
+    return StreamingResponse(
+        mjpeg_generator(cfg.video_source, roi=roi, fps=fps, loop=loop),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )

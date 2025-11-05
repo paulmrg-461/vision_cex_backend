@@ -7,8 +7,18 @@ except Exception:
     YOLO = None  # type: ignore
     _ultralytics_available = False
 
+try:
+    import torch  # type: ignore
+    _torch_available = True
+except Exception:
+    torch = None  # type: ignore
+    _torch_available = False
+
 import numpy as np
 from app.domain.entities.bbox_entity import BoundingBox
+from app.core.utils.logger import get_logger
+
+_logger = get_logger("yolo_ultralytics")
 
 
 class YoloUltralyticsAdapter:
@@ -24,15 +34,27 @@ class YoloUltralyticsAdapter:
             try:
                 self._model = YOLO(weights_path)
                 # 'auto' lets Ultralytics choose CUDA if available
-                self._device = device
+                if device == "auto":
+                    if _torch_available and torch.cuda.is_available():
+                        self._device = "0"  # primera GPU
+                    else:
+                        self._device = "cpu"
+                else:
+                    self._device = device
+                _logger.info("Ultralytics YOLO cargado: %s (device=%s)", weights_path, self._device)
             except Exception:
                 self._enabled = False
+                _logger.error("No se pudo cargar Ultralytics YOLO con pesos '%s'", weights_path)
 
     def detect(self, frame: np.ndarray) -> List[BoundingBox]:
         if not self._enabled or self._model is None:
             return []
         # Run inference; results[0] is per-image
-        results = self._model.predict(source=frame, device=self._device, verbose=False)
+        try:
+            results = self._model.predict(source=frame, device=self._device, verbose=False)
+        except Exception as e:
+            _logger.error("Error en predict de Ultralytics: %s", e)
+            return []
         boxes: List[BoundingBox] = []
         if not results:
             return boxes

@@ -2,6 +2,7 @@ from typing import Optional
 
 from app.core.config.environment_config import EnvironmentConfig
 from app.data.adapters.yolo_ultralytics_adapter import YoloUltralyticsAdapter
+from app.data.adapters.yolo_onnx_adapter import YoloOnnxAdapter
 from app.domain.usecases.detect_objects_usecase import DetectObjectsUseCase
 
 
@@ -20,7 +21,10 @@ class ServiceLocator:
     def detector_adapter(cls) -> YoloUltralyticsAdapter:
         if cls._detector_adapter is None:
             cfg = cls.config()
-            cls._detector_adapter = YoloUltralyticsAdapter(weights_path=cfg.yolo_weights, device=cfg.device)
+            if cfg.model_backend.lower() == "onnx":
+                cls._detector_adapter = YoloOnnxAdapter(onnx_path=cfg.yolo_weights, device=cfg.device, input_size=cfg.model_input_size)
+            else:
+                cls._detector_adapter = YoloUltralyticsAdapter(weights_path=cfg.yolo_weights, device=cfg.device)
         return cls._detector_adapter
 
     @classmethod

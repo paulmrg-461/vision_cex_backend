@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   fastapi:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
@@ -12,6 +10,6 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     env_file:
-      - .env
+      - ../.env
     volumes:
-      - .:/app
+      - ../:/app
