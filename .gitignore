@@ -1,0 +1,61 @@
+# === Python / FastAPI ===
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches
+.cache/
+.pytest_cache/
+pip-wheel-metadata/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Logs
+logs/
+log/
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE / Editor
+.vscode/
+.idea/
+*.code-workspace
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+docker/*.log
+
+# Models / Weights (large files should not be committed)
+models/
+weights/
+*.pt
+*.onnx
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OpenCV/Ultralytics cache (if any)
+opencv_cache/

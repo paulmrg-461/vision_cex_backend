@@ -1,0 +1,1 @@
+"""Domain use cases for processing video frames and detection."""

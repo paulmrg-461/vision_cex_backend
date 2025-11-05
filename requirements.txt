@@ -1,0 +1,7 @@
+fastapi==0.115.2
+uvicorn[standard]==0.30.0
+opencv-python==4.10.0.84
+numpy==1.26.4
+python-dotenv==1.0.1
+# Optional but recommended for working detection; if missing, endpoint streams sin detección
+ultralytics==8.2.71

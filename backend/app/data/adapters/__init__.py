@@ -1,0 +1,1 @@
+"""Adapters to integrate external models/services (e.g., YOLO)."""
