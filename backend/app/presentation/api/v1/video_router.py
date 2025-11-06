@@ -279,7 +279,20 @@ def stream_by_id(source_id: str, roi: Optional[str] = None, fps: Optional[float]
     """Stream MJPEG for a specific registered source ID."""
     src = sources_registry.get(source_id)
     if not src:
-        raise HTTPException(status_code=404, detail=f"Fuente no encontrada: {source_id}")
+        # Fallback: if source_id is numeric and a samples/Video{N}.mp4 exists, use it automatically
+        if source_id.isdigit():
+            fallback_path = os.path.join("samples", f"Video{int(source_id)}.mp4")
+            lower = fallback_path.lower()
+            use_ffmpeg = lower.endswith((".mp4", ".avi", ".mov", ".mkv"))
+            cap = cv2.VideoCapture(fallback_path, cv2.CAP_FFMPEG) if use_ffmpeg else cv2.VideoCapture(fallback_path)
+            ok = cap.isOpened()
+            cap.release()
+            if ok:
+                logger.info("Usando fallback para id=%s -> %s", source_id, fallback_path)
+                sources_registry[source_id] = fallback_path
+                src = fallback_path
+        if not src:
+            raise HTTPException(status_code=404, detail=f"Fuente no encontrada: {source_id}")
     return StreamingResponse(
         mjpeg_generator(src, roi=roi, fps=fps, loop=loop),
         media_type="multipart/x-mixed-replace; boundary=frame",
