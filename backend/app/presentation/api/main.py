@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.presentation.api.v1.video_router import router as video_router
+from app.presentation.api.v1.video_router import router as video_router, preload_default_sources
 
 
 app = FastAPI(title="Vision CEX Backend", version="1.0.0")
@@ -14,6 +14,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def on_startup():
+    # Preload sample sources so /{id}/stream works out-of-the-box
+    preload_default_sources()
 
 @app.get("/")
 def root():

@@ -19,6 +19,23 @@ logger = get_logger("video")
 sources_registry: Dict[str, str] = {}
 
 
+def preload_default_sources():
+    """Preload sample sources Video1.mp4 .. Video8.mp4 at startup if available/openable."""
+    for i in range(1, 9):
+        source_id = str(i)
+        path = os.path.join("samples", f"Video{i}.mp4")
+        lower = path.lower()
+        use_ffmpeg = lower.endswith((".mp4", ".avi", ".mov", ".mkv"))
+        cap = cv2.VideoCapture(path, cv2.CAP_FFMPEG) if use_ffmpeg else cv2.VideoCapture(path)
+        ok = cap.isOpened()
+        cap.release()
+        if ok:
+            sources_registry[source_id] = path
+            logger.info("Fuente precargada: id=%s, source=%s", source_id, path)
+        else:
+            logger.warning("No se pudo precargar fuente %s (%s). Archivo inexistente o no abrible.", source_id, path)
+
+
 def parse_roi(roi: Optional[str]) -> Optional[Tuple[int, int, int, int]]:
     if not roi:
         return None
