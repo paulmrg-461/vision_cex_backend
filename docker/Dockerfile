@@ -8,6 +8,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        python3 \
        python3-pip \
+       git \
        libgl1 \
        libglib2.0-0 \
        ffmpeg \
@@ -16,7 +17,8 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
-RUN pip3 install -r /app/requirements.txt
+RUN pip3 install -r /app/requirements.txt \
+    && pip3 install --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio
 
 COPY . /app
 

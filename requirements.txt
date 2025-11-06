@@ -6,3 +6,11 @@ python-dotenv==1.0.1
 onnxruntime==1.18.1
 # Opcional: para backend Ultralytics (PyTorch). Mantener solo si deseas usar MODEl_BACKEND=ultralytics
 ultralytics==8.2.71
+# Open-vocabulary detection (GroundingDINO + SAM)
+# Se instalan desde los repos oficiales (no están publicados en PyPI con versiones estables)
+git+https://github.com/IDEA-Research/GroundingDINO.git
+git+https://github.com/facebookresearch/segment-anything.git
+timm==0.9.2
+transformers==4.44.2
+shapely==2.0.4
+requests==2.32.3
