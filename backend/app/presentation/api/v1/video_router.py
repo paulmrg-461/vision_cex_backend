@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, List
 
 import cv2
 import os
@@ -13,6 +13,10 @@ from app.core.utils.logger import get_logger
 
 router = APIRouter(prefix="/api/v1/video", tags=["video"])
 logger = get_logger("video")
+
+# Simple in-memory registry to manage multiple video sources by ID
+# Example: {"1": "samples/Video1.mp4", "2": "rtsp://user:pass@ip/..."}
+sources_registry: Dict[str, str] = {}
 
 
 def parse_roi(roi: Optional[str]) -> Optional[Tuple[int, int, int, int]]:
@@ -126,6 +130,15 @@ class RtspSourceRequest(BaseModel):
     url: str
 
 
+class SourceItem(BaseModel):
+    id: str
+    source: str  # file path or RTSP/HTTP URL or webcam index as string
+
+
+class BulkSourcesRequest(BaseModel):
+    items: List[SourceItem]
+
+
 @router.get("/source")
 def get_source():
     cfg = ServiceLocator.config()
@@ -171,6 +184,80 @@ def set_source_rtsp(req: RtspSourceRequest):
     return {"message": "Fuente de video actualizada (RTSP/HTTP)", "video_source": cfg.video_source}
 
 
+@router.get("/sources")
+def list_sources():
+    """List all registered sources in the in-memory registry."""
+    return {"sources": sources_registry}
+
+
+@router.post("/sources")
+def add_or_update_source(item: SourceItem):
+    """Add or update a video source by ID.
+
+    Validates the source by attempting to open it with OpenCV (FFMPEG for URLs/files).
+    """
+    src = (item.source or "").strip()
+    if not item.id or not src:
+        raise HTTPException(status_code=400, detail="Debe proporcionar 'id' y 'source'.")
+
+    lower = src.lower()
+    use_ffmpeg = lower.startswith("rtsp://") or lower.startswith("http://") or lower.startswith("https://") \
+                 or lower.endswith((".mp4", ".avi", ".mov", ".mkv"))
+
+    # Try open
+    cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG) if use_ffmpeg else cv2.VideoCapture(src)
+    ok = cap.isOpened()
+    cap.release()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"No se pudo abrir el origen de video: {src}")
+
+    sources_registry[item.id] = src
+    logger.info("Fuente registrada: id=%s, source=%s", item.id, src)
+    return {"message": "Fuente registrada/actualizada", "id": item.id, "source": src}
+
+
+@router.post("/sources/bulk")
+def bulk_add_sources(req: BulkSourcesRequest):
+    """Bulk add/update sources. Returns per-item results and errors without aborting the whole request."""
+    results = []
+    for item in req.items:
+        try:
+            src = (item.source or "").strip()
+            if not item.id or not src:
+                raise HTTPException(status_code=400, detail="Debe proporcionar 'id' y 'source'.")
+
+            lower = src.lower()
+            use_ffmpeg = lower.startswith("rtsp://") or lower.startswith("http://") or lower.startswith("https://") \
+                         or lower.endswith((".mp4", ".avi", ".mov", ".mkv"))
+
+            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG) if use_ffmpeg else cv2.VideoCapture(src)
+            ok = cap.isOpened()
+            cap.release()
+            if not ok:
+                results.append({"id": item.id, "source": src, "status": "error", "detail": "No se pudo abrir el origen de video"})
+                continue
+
+            sources_registry[item.id] = src
+            logger.info("Fuente registrada: id=%s, source=%s", item.id, src)
+            results.append({"id": item.id, "source": src, "status": "ok"})
+        except HTTPException as he:
+            results.append({"id": item.id, "source": item.source, "status": "error", "detail": he.detail})
+        except Exception as e:
+            results.append({"id": item.id, "source": item.source, "status": "error", "detail": str(e)})
+
+    return {"results": results}
+
+
+@router.delete("/sources/{source_id}")
+def delete_source(source_id: str):
+    if source_id in sources_registry:
+        removed = sources_registry.pop(source_id)
+        logger.info("Fuente eliminada: id=%s, source=%s", source_id, removed)
+        return {"message": "Fuente eliminada", "id": source_id}
+    else:
+        raise HTTPException(status_code=404, detail="Fuente no encontrada")
+
+
 @router.get("/stream")
 def stream(roi: Optional[str] = None, fps: Optional[float] = None, loop: bool = False):
     """Devuelve un stream MJPEG de la cámara con detección y cajas dibujadas.
@@ -183,5 +270,17 @@ def stream(roi: Optional[str] = None, fps: Optional[float] = None, loop: bool = 
     cfg = ServiceLocator.config()
     return StreamingResponse(
         mjpeg_generator(cfg.video_source, roi=roi, fps=fps, loop=loop),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@router.get("/{source_id}/stream")
+def stream_by_id(source_id: str, roi: Optional[str] = None, fps: Optional[float] = None, loop: bool = False):
+    """Stream MJPEG for a specific registered source ID."""
+    src = sources_registry.get(source_id)
+    if not src:
+        raise HTTPException(status_code=404, detail=f"Fuente no encontrada: {source_id}")
+    return StreamingResponse(
+        mjpeg_generator(src, roi=roi, fps=fps, loop=loop),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
