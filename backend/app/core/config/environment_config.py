@@ -16,4 +16,6 @@ class EnvironmentConfig:
     yolo_weights: str = os.getenv("YOLO_WEIGHTS", "yolov8n.onnx")
     device: str = os.getenv("DEVICE", "auto")  # 'cuda', 'cpu', or 'auto'
     model_backend: str = os.getenv("MODEL_BACKEND", "onnx")  # 'onnx' or 'ultralytics'
+    # Task selection: 'detect' for bounding boxes, 'segment' for masks (Ultralytics)
+    model_task: str = os.getenv("MODEL_TASK", "detect")
     model_input_size: int = int(os.getenv("MODEL_INPUT_SIZE", "640"))

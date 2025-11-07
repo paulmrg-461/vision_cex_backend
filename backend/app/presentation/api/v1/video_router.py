@@ -88,7 +88,10 @@ def mjpeg_generator(video_source, roi: Optional[str] = None, fps: Optional[float
 
     delay = (1.0 / target_fps) if target_fps and target_fps > 0 else 0.0
 
+    cfg = ServiceLocator.config()
+    is_segment_task = (cfg.model_task.lower() == "segment")
     detect_usecase = ServiceLocator.detect_usecase()
+    segment_usecase = ServiceLocator.segment_usecase() if is_segment_task else None
 
     try:
         while True:
@@ -114,10 +117,15 @@ def mjpeg_generator(video_source, roi: Optional[str] = None, fps: Optional[float
                     time.sleep(0.05)
                     continue
 
-            # Detección y dibujo de cajas
-            boxes = detect_usecase.detect(frame, roi=roi_rect)
-            DetectObjectsUseCase = type(detect_usecase)  # acceso al método estático
-            DetectObjectsUseCase.draw_boxes(frame, boxes)
+            # Detección o segmentación y overlay
+            if is_segment_task and segment_usecase is not None:
+                instances = segment_usecase.segment(frame, roi=roi_rect)
+                SegmentObjectsUseCase = type(segment_usecase)
+                SegmentObjectsUseCase.draw_masks(frame, instances)
+            else:
+                boxes = detect_usecase.detect(frame, roi=roi_rect)
+                DetectObjectsUseCase = type(detect_usecase)  # acceso al método estático
+                DetectObjectsUseCase.draw_boxes(frame, boxes)
 
             # Encode JPEG
             ok, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
