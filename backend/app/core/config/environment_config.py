@@ -19,3 +19,7 @@ class EnvironmentConfig:
     # Task selection: 'detect' for bounding boxes, 'segment' for masks (Ultralytics)
     model_task: str = os.getenv("MODEL_TASK", "detect")
     model_input_size: int = int(os.getenv("MODEL_INPUT_SIZE", "640"))
+    # Confidence threshold for Ultralytics inference (detect/segment)
+    yolo_conf: float = float(os.getenv("YOLO_CONF", "0.25"))
+    # For segmentation: also draw bounding boxes around masks if true
+    segment_draw_bbox: bool = os.getenv("SEGMENT_DRAW_BBOX", "true").lower() in ("1", "true", "yes", "on")

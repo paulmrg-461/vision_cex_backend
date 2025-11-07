@@ -5,4 +5,4 @@ numpy==1.26.4
 python-dotenv==1.0.1
 onnxruntime==1.18.1
 # Opcional: para backend Ultralytics (PyTorch). Mantener solo si deseas usar MODEl_BACKEND=ultralytics
-ultralytics==8.2.71
+ultralytics>=8.2.100

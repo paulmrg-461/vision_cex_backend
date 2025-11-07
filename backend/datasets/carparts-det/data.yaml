@@ -1,0 +1,21 @@
+# Ultralytics dataset config for car parts detection (bounding boxes)
+# Adjust paths to your dataset structure mounted under /app
+
+path: /app/backend/datasets/carparts-det
+train: images/train
+val: images/val
+
+# Class names (minimal set requested):
+names:
+  - llanta
+  - puerta
+  - ventana
+
+# Notes:
+# - Ensure labels are in YOLO detection format (cx cy w h normalized) under labels/train and labels/val
+# - Typical structure:
+#   /app/backend/datasets/carparts-det/
+#     images/train/*.jpg
+#     images/val/*.jpg
+#     labels/train/*.txt
+#     labels/val/*.txt

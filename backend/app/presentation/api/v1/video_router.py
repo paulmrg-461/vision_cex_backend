@@ -121,7 +121,8 @@ def mjpeg_generator(video_source, roi: Optional[str] = None, fps: Optional[float
             if is_segment_task and segment_usecase is not None:
                 instances = segment_usecase.segment(frame, roi=roi_rect)
                 SegmentObjectsUseCase = type(segment_usecase)
-                SegmentObjectsUseCase.draw_masks(frame, instances)
+                # Draw masks and optional bounding boxes around masks based on environment config
+                SegmentObjectsUseCase.draw_masks(frame, instances, alpha=0.4, draw_bboxes=cfg.segment_draw_bbox)
             else:
                 boxes = detect_usecase.detect(frame, roi=roi_rect)
                 DetectObjectsUseCase = type(detect_usecase)  # acceso al método estático

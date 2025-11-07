@@ -1,0 +1,23 @@
+# Ultralytics dataset config for car parts instance segmentation
+# Adjust paths to your dataset structure mounted under /app
+
+path: /app/backend/datasets/carparts-seg
+train: images/train
+val: images/val
+
+# Class names for car parts (adjust to your dataset)
+names:
+  - llanta
+  - puerta
+  - ventana
+  - parachoques
+  - faro
+
+# Notes:
+# - Ensure you have labels in YOLO segmentation format under labels/train and labels/val
+# - Typical structure:
+#   /app/backend/datasets/carparts-seg/
+#     images/train/*.jpg
+#     images/val/*.jpg
+#     labels/train/*.txt
+#     labels/val/*.txt

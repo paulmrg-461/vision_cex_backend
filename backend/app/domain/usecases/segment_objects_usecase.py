@@ -37,10 +37,13 @@ class SegmentObjectsUseCase:
             return self._detector.segment(frame) if hasattr(self._detector, 'segment') else []
 
     @staticmethod
-    def draw_masks(frame, instances: List[SegmentationObject], alpha: float = 0.4):
+    def draw_masks(frame, instances: List[SegmentationObject], alpha: float = 0.4, draw_bboxes: bool = False, box_color: tuple = (0, 255, 0), box_thickness: int = 2):
         """Overlay filled polygons on frame with semi-transparency and optional labels.
 
         alpha: blending factor for mask overlay.
+        draw_bboxes: if True, also draw bounding boxes around each mask instance.
+        box_color: color for bounding boxes.
+        box_thickness: thickness for bounding boxes.
         """
         if not instances:
             return
@@ -59,5 +62,15 @@ class SegmentObjectsUseCase:
             else:
                 pos = (o.polygon[0][0], max(0, o.polygon[0][1] - 5))
             cv2.putText(overlay, label, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            # optional bounding box drawing
+            if draw_bboxes:
+                if o.bbox is not None:
+                    x1, y1, x2, y2 = o.bbox
+                else:
+                    # compute bbox from polygon
+                    xs = [p[0] for p in o.polygon]
+                    ys = [p[1] for p in o.polygon]
+                    x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), box_color, box_thickness)
         # blend overlay onto original frame
         cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
