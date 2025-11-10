@@ -6,6 +6,24 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 import time
+import re
+from urllib.parse import urljoin, urlparse, parse_qs
+
+try:
+    import requests  # type: ignore
+    _requests_available = True
+except Exception:
+    requests = None  # type: ignore
+    _requests_available = False
+
+try:
+    import urllib3  # type: ignore
+    from urllib3.exceptions import InsecureRequestWarning  # type: ignore
+    _urllib3_available = True
+except Exception:
+    urllib3 = None  # type: ignore
+    InsecureRequestWarning = None  # type: ignore
+    _urllib3_available = False
 
 from app.core.di.service_locator import ServiceLocator
 from app.core.utils.logger import get_logger
@@ -155,6 +173,13 @@ class FileSourceRequest(BaseModel):
 class RtspSourceRequest(BaseModel):
     url: str
 
+class HlsSourceRequest(BaseModel):
+    url: str  # Puede ser una página HTML que contenga el .m3u8 o el .m3u8 directo
+    auto_find_m3u8: bool = True  # si es true y la URL no termina en .m3u8, intenta extraerlo de la página
+    # verify_ssl:
+    #   - None: intentar primero con verificación y, si falla por SSL, reintentar sin verificación automáticamente.
+    #   - True/False: respetar el valor explícito sin fallback automático.
+    verify_ssl: Optional[bool] = None
 
 class SourceItem(BaseModel):
     id: str
@@ -282,6 +307,176 @@ def delete_source(source_id: str):
         return {"message": "Fuente eliminada", "id": source_id}
     else:
         raise HTTPException(status_code=404, detail="Fuente no encontrada")
+
+
+def resolve_hls_url(url: str, auto_find_m3u8: bool = True, verify_ssl: Optional[bool] = None) -> str:
+    """Resuelve una URL HLS. Si 'url' es una página HTML, intenta extraer la primera URL .m3u8.
+
+    - Si la URL ya termina en .m3u8, se devuelve tal cual.
+    - Si auto_find_m3u8 es True y la URL no termina en .m3u8, descarga la página y busca patrones de .m3u8.
+    """
+    lower = url.lower()
+    if lower.endswith(".m3u8"):
+        return url
+
+    if not auto_find_m3u8:
+        return url  # devolver la URL original; cv2 intentará abrirla si es un stream directo
+
+    if not _requests_available:
+        raise HTTPException(status_code=500, detail="'requests' no está disponible en el contenedor para resolver HLS")
+
+    # Helper para peticiones con control de verificación
+    def _fetch(_url: str, _verify: bool):
+        if not _verify and _urllib3_available and InsecureRequestWarning is not None:
+            urllib3.disable_warnings(InsecureRequestWarning)
+        return requests.get(_url, timeout=10, verify=_verify)
+
+    # Estrategia de verificación:
+    # - verify_ssl is None: probar con verify=True y si falla por SSL, reintentar con verify=False.
+    # - verify_ssl True/False: usar tal cual sin fallback.
+    initial_verify = True if verify_ssl is None else bool(verify_ssl)
+
+    # Heurística: si la URL parece ser una página go2rtc stream.html con parámetro src,
+    # construir directamente endpoints HLS conocidos sin necesidad de parsear HTML.
+    try:
+        parsed = urlparse(url)
+        path = parsed.path or ""
+        qs = parse_qs(parsed.query or "")
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        if "stream.html" in path and "src" in qs and qs["src"]:
+            stream_id = qs["src"][0]
+            candidates = [
+                f"{base}/api/stream.m3u8?src={stream_id}",
+                f"{base}/stream.m3u8?src={stream_id}",
+            ]
+            if "/liveviews/" in path:
+                candidates.append(f"{base}/liveviews/api/stream.m3u8?src={stream_id}")
+            for cand in candidates:
+                try:
+                    resp = _fetch(cand, initial_verify)
+                    if resp.status_code in (200, 206):
+                        return cand
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        loc = resp.headers.get("Location")
+                        if loc and loc.lower().endswith(".m3u8"):
+                            resolved = urljoin(cand, loc)
+                            resp2 = _fetch(resolved, initial_verify)
+                            if resp2.status_code in (200, 206):
+                                return resolved
+                except Exception:
+                    if verify_ssl is None:
+                        try:
+                            resp = _fetch(cand, False)
+                            if resp.status_code in (200, 206):
+                                return cand
+                        except Exception:
+                            pass
+            # Si ningún candidato funciona, continuar con la resolución estándar
+    except Exception:
+        pass
+    try:
+        resp = _fetch(url, initial_verify)
+        resp.raise_for_status()
+        html = resp.text
+        # Buscar la primera coincidencia .m3u8 en la página
+        # Captura URLs absolutas o relativas dentro de comillas
+        matches = re.findall(r"([\"\'])(?P<u>[^\"\']+\.m3u8)(?:\?[^\"\']*)?\1", html)
+        candidate = None
+        for m in matches:
+            u = m[1]
+            candidate = u
+            break
+        if not candidate:
+            # Buscar sin comillas como fallback
+            plain = re.findall(r"(?P<u>https?://[^\s'\"]+\.m3u8(?:\?[^\s'\"]*)?)", html)
+            if plain:
+                candidate = plain[0]
+        if not candidate:
+            raise HTTPException(status_code=404, detail="No se encontró ninguna URL .m3u8 en la página proporcionada")
+        # Resolver si es relativa
+        resolved = urljoin(url, candidate)
+        return resolved
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Si no se indicó verify_ssl y el error sugiere problema de certificado, reintentar sin verificación
+        if verify_ssl is None:
+            try:
+                from requests.exceptions import SSLError as RequestsSSLError  # type: ignore
+                is_ssl_error = isinstance(e, RequestsSSLError)
+            except Exception:
+                is_ssl_error = "CERTIFICATE_VERIFY_FAILED" in str(e) or "SSLCertVerificationError" in str(e)
+
+            if is_ssl_error:
+                try:
+                    resp = _fetch(url, False)
+                    resp.raise_for_status()
+                    html = resp.text
+                    matches = re.findall(r"([\"\'])(?P<u>[^\"\']+\.m3u8)(?:\?[^\"\']*)?\1", html)
+                    candidate = None
+                    for m in matches:
+                        u = m[1]
+                        candidate = u
+                        break
+                    if not candidate:
+                        plain = re.findall(r"(?P<u>https?://[^\s'\"]+\.m3u8(?:\?[^\s'\"]*)?)", html)
+                        if plain:
+                            candidate = plain[0]
+                    if not candidate:
+                        raise HTTPException(status_code=404, detail="No se encontró ninguna URL .m3u8 en la página proporcionada (retry insecure)")
+                    resolved = urljoin(url, candidate)
+                    return resolved
+                except HTTPException:
+                    raise
+                except Exception as e2:
+                    raise HTTPException(status_code=500, detail=f"Error resolviendo HLS (retry insecure): {e2}")
+        # Sin fallback: devolver error original
+        raise HTTPException(status_code=500, detail=f"Error resolviendo HLS: {e}")
+
+
+@router.post("/source/hls")
+def set_source_hls(req: HlsSourceRequest):
+    """Establece la fuente de video desde una URL HLS (.m3u8) o una página que contenga HLS.
+
+    - Si 'url' es una página HTML (por ejemplo, stream.html?mode=hls), intenta extraer la primera URL .m3u8.
+    - Valida la captura con OpenCV FFMPEG.
+    """
+    if not req.url:
+        raise HTTPException(status_code=400, detail="URL vacía")
+
+    final_url = resolve_hls_url(req.url, auto_find_m3u8=req.auto_find_m3u8, verify_ssl=req.verify_ssl)
+
+    cap = cv2.VideoCapture(final_url, cv2.CAP_FFMPEG)
+    ok = cap.isOpened()
+    cap.release()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"No se pudo abrir la URL HLS: {final_url}")
+
+    cfg = ServiceLocator.config()
+    cfg.video_source = final_url
+    logger.info("Fuente HLS establecida: %s -> %s", req.url, final_url)
+    return {"message": "Fuente HLS actualizada", "video_source": cfg.video_source}
+
+
+@router.get("/hls/stream")
+def stream_hls(url: str, roi: Optional[str] = None, fps: Optional[float] = None, verify_ssl: Optional[bool] = None):
+    """Stream MJPEG directamente desde una URL HLS o una página que contenga .m3u8.
+
+    - No modifica la fuente global; usa la URL proporcionada.
+    - Si 'url' no termina en .m3u8, intenta extraerla del HTML.
+    """
+    final_url = resolve_hls_url(url, auto_find_m3u8=True, verify_ssl=verify_ssl)
+    # Validación rápida
+    cap = cv2.VideoCapture(final_url, cv2.CAP_FFMPEG)
+    ok = cap.isOpened()
+    cap.release()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"No se pudo abrir la URL HLS: {final_url}")
+
+    return StreamingResponse(
+        mjpeg_generator(final_url, roi=roi, fps=fps, loop=False),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
 
 
 @router.get("/stream")

@@ -21,4 +21,5 @@ RUN pip3 install -r /app/requirements.txt
 COPY . /app
 
 EXPOSE 8000
-CMD ["python3", "-m", "uvicorn", "app.presentation.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 56789
+CMD ["python3", "-m", "uvicorn", "app.presentation.api.main:app", "--host", "0.0.0.0", "--port", "56789"]

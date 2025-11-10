@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     ports:
-      - "8000:8000"
+      - "56789:56789"
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
