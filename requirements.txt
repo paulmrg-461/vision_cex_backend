@@ -7,3 +7,12 @@ onnxruntime==1.18.1
 # Opcional: para backend Ultralytics (PyTorch). Mantener solo si deseas usar MODEl_BACKEND=ultralytics
 ultralytics>=8.2.100
 requests==2.32.3
+Pillow==10.4.0
+transformers>=4.46.0
+torch
+torchvision
+autoawq>=0.2.0
+accelerate>=0.26.0
+compressed-tensors
+decord
+sentencepiece

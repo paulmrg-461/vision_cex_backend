@@ -299,6 +299,5 @@ Open the MJPEG stream in your browser and you should see boxes for the requested
 - Uvicorn is started without `--reload`; restart the service after code changes:
   - `docker compose -f docker/docker-compose.yml restart fastapi`
 
-## License
-
-Copyright © Your Organization. All rights reserved.
+## Contributors
+IA Aplicada SAS
