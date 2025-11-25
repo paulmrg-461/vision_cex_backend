@@ -12,13 +12,34 @@ class LicensePlateOcrRepositoryImpl:
         self._detector = detector
         self._ocr = ocr
 
-    def _crop(self, img: Image.Image, bbox: Tuple[int, int, int, int]) -> Image.Image:
+    def _crop(self, img: Image.Image, bbox: Tuple[int, int, int, int], pad_ratio: float = 0.2) -> Image.Image:
+        """Recorta con margen alrededor del bbox para evitar cortar caracteres.
+
+        pad_ratio: porcentaje de padding relativo al ancho/alto de la caja.
+        """
         x1, y1, x2, y2 = bbox
         x1 = max(0, min(img.width - 1, x1))
         y1 = max(0, min(img.height - 1, y1))
         x2 = max(x1 + 1, min(img.width, x2))
         y2 = max(y1 + 1, min(img.height, y2))
-        return img.crop((x1, y1, x2, y2))
+        w = x2 - x1
+        h = y2 - y1
+        pad_x = int(w * pad_ratio)
+        pad_y = int(h * pad_ratio)
+        nx1 = max(0, x1 - pad_x)
+        ny1 = max(0, y1 - pad_y)
+        nx2 = min(img.width, x2 + pad_x)
+        ny2 = min(img.height, y2 + pad_y)
+        return img.crop((nx1, ny1, nx2, ny2))
+
+    def _upscale(self, img: Image.Image) -> Image.Image:
+        """Aumenta resolución del recorte para que el OCR tenga más detalle."""
+        w, h = img.size
+        # Escalar al menos al doble o a 480 px de ancho, manteniendo aspecto
+        target_w = max(480, w * 2)
+        scale = target_w / float(w)
+        target_h = int(h * scale)
+        return img.resize((int(target_w), target_h), Image.BICUBIC)
 
     def read(
         self,
@@ -47,8 +68,8 @@ class LicensePlateOcrRepositoryImpl:
         if best_bbox is None:
             crop_img = img
         else:
-            crop_img = self._crop(img, best_bbox)
+            crop_img = self._crop(img, best_bbox, pad_ratio=0.2)
+        crop_img = self._upscale(crop_img)
 
         text, ocr_conf = self._ocr.read_text(crop_img)
         return LicensePlateReadResponse(image_url=image_url, text=text, confidence=ocr_conf, bbox=best_bbox)
-
