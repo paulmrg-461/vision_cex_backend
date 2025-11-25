@@ -27,6 +27,12 @@ class EnvironmentConfig:
     model_input_size: int = int(os.getenv("MODEL_INPUT_SIZE", "640"))
     # Confidence threshold for Ultralytics inference (detect/segment)
     yolo_conf: float = float(os.getenv("YOLO_CONF", "0.25"))
+    # YOLO específico para reconocimiento de placas
+    yolo_plates_weights: str = os.getenv("YOLO_PLATES_WEIGHTS", "models/yolo_license_plates.pt")
+    yolo_plates_conf: float = float(os.getenv("YOLO_PLATES_CONF", "0.25"))
+    # OCR para lectura de placas
+    lp_ocr_engine: str = os.getenv("LP_OCR_ENGINE", "paddle")  # 'paddle' (PaddleOCR)
+    lp_ocr_lang: str = os.getenv("LP_OCR_LANG", "en")  # idioma para OCR
     # For segmentation: also draw bounding boxes around masks if true
     segment_draw_bbox: bool = os.getenv("SEGMENT_DRAW_BBOX", "true").lower() in ("1", "true", "yes", "on")
     # DeepSeek integration
