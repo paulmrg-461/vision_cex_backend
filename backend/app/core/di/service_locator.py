@@ -86,13 +86,17 @@ class ServiceLocator:
     @classmethod
     def detect_usecase(cls) -> DetectObjectsUseCase:
         if cls._detect_usecase is None:
-            cls._detect_usecase = DetectObjectsUseCase(detector_adapter=cls.detector_adapter())
+            cfg = cls.config()
+            allowed = [c.strip() for c in (cfg.detect_allowed_classes or "").split(",") if c.strip()]
+            cls._detect_usecase = DetectObjectsUseCase(detector_adapter=cls.detector_adapter(), allowed_classes=allowed)
         return cls._detect_usecase
 
     @classmethod
     def segment_usecase(cls) -> SegmentObjectsUseCase:
         if cls._segment_usecase is None:
-            cls._segment_usecase = SegmentObjectsUseCase(detector_adapter=cls.detector_adapter())
+            cfg = cls.config()
+            allowed = [c.strip() for c in (cfg.segment_allowed_classes or "").split(",") if c.strip()]
+            cls._segment_usecase = SegmentObjectsUseCase(detector_adapter=cls.detector_adapter(), allowed_classes=allowed)
         return cls._segment_usecase
 
     @classmethod

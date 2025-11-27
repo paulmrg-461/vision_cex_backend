@@ -11,8 +11,10 @@ class SegmentObjectsUseCase:
     Delegates inference to a detector/segmenter adapter injected via DI.
     """
 
-    def __init__(self, detector_adapter):
+    def __init__(self, detector_adapter, allowed_classes: Optional[List[str]] = None):
         self._detector = detector_adapter
+        # lista de clases permitidas en minúsculas; None o vacía implica sin filtro
+        self._allowed = [c.strip().lower() for c in (allowed_classes or []) if c and str(c).strip()]
 
     def segment(self, frame, roi: Optional[Tuple[int, int, int, int]] = None) -> List[SegmentationObject]:
         """Run instance segmentation on a frame.
@@ -23,6 +25,8 @@ class SegmentObjectsUseCase:
             x, y, w, h = roi
             roi_frame = frame[y:y + h, x:x + w]
             objs = self._detector.segment(roi_frame) if hasattr(self._detector, 'segment') else []
+            if self._allowed:
+                objs = [o for o in objs if (o.cls or "").strip().lower() in self._allowed]
             translated: List[SegmentationObject] = []
             for o in objs:
                 # translate polygon points back to global coordinates
@@ -34,7 +38,10 @@ class SegmentObjectsUseCase:
                 translated.append(SegmentationObject(polygon=poly, cls=o.cls, conf=o.conf, bbox=bbox))
             return translated
         else:
-            return self._detector.segment(frame) if hasattr(self._detector, 'segment') else []
+            objs = self._detector.segment(frame) if hasattr(self._detector, 'segment') else []
+            if self._allowed:
+                objs = [o for o in objs if (o.cls or "").strip().lower() in self._allowed]
+            return objs
 
     @staticmethod
     def draw_masks(frame, instances: List[SegmentationObject], alpha: float = 0.4, draw_bboxes: bool = False, box_color: tuple = (0, 255, 0), box_thickness: int = 2):

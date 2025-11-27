@@ -126,6 +126,8 @@ Este documento describe de forma detallada cómo el backend "Vision CEX" captura
 - `MODEL_INPUT_SIZE`: tamaño de entrada para `imgsz` (p. ej. `640`, `960`, `1280`).
 - `CONF_THRESHOLD`: umbral de confianza por defecto.
 - `segment_draw_bbox`: `true/false` para dibujar cajas alrededor de las máscaras.
+- `SEGMENT_ALLOWED_CLASSES`: lista separada por comas de clases permitidas en segmentación. Por ejemplo `bus` para que solo se muestren máscaras de buses. Por defecto: `bus`.
+- `DETECT_ALLOWED_CLASSES`: lista separada por comas de clases permitidas en detección. Útil cuando `MODEL_TASK=detect`. Por ejemplo `bus` para que solo se dibujen cajas de buses. Por defecto: `bus`.
 - `video_source`: fuente inicial (p. ej. `samples/Video1.mp4`).
 
 > Nota: La apertura de URLs y archivos se realiza con FFMPEG (`cv2.CAP_FFMPEG`) cuando corresponde.
@@ -166,6 +168,28 @@ curl -X GET "http://localhost:8000/api/v1/video/hls/stream?url=https://ejemplo.c
 ```bash
 curl -X GET "http://localhost:8000/api/v1/video/stream?roi=320,200,640,480&fps=20" \
   -H "Accept: multipart/x-mixed-replace"
+```
+
+- Limitar segmentación a la clase "bus" mediante `.env`:
+
+```bash
+# .env
+SEGMENT_ALLOWED_CLASSES=bus
+MODEL_TASK=segment
+MODEL_BACKEND=ultralytics
+YOLO_WEIGHTS=/app/backend/weights/yolov8n-seg.pt
+MODEL_INPUT_SIZE=960
+```
+
+- Limitar detección a la clase "bus" (si `MODEL_TASK=detect`):
+
+```bash
+# .env
+DETECT_ALLOWED_CLASSES=bus
+MODEL_TASK=detect
+MODEL_BACKEND=onnx   # o ultralytics, según tus pesos
+YOLO_WEIGHTS=/app/backend/weights/yolov8n.onnx
+MODEL_INPUT_SIZE=960
 ```
 
 ## Consideraciones de Seguridad y Robustez

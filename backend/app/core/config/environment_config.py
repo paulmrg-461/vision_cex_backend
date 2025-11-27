@@ -35,6 +35,10 @@ class EnvironmentConfig:
     lp_ocr_lang: str = os.getenv("LP_OCR_LANG", "en")  # idioma para OCR
     # For segmentation: also draw bounding boxes around masks if true
     segment_draw_bbox: bool = os.getenv("SEGMENT_DRAW_BBOX", "true").lower() in ("1", "true", "yes", "on")
+    # Clases permitidas para segmentación (lista separada por comas). Ejemplo: "bus,person"
+    segment_allowed_classes: str = os.getenv("SEGMENT_ALLOWED_CLASSES", "bus")
+    # Clases permitidas para detección (lista separada por comas). Ejemplo: "bus,truck"
+    detect_allowed_classes: str = os.getenv("DETECT_ALLOWED_CLASSES", "bus")
     # DeepSeek integration
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_api_base: str = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
