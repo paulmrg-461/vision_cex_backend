@@ -10,8 +10,11 @@ class DetectObjectsUseCase:
     It delegates inference to a detector adapter injected via DI.
     """
 
-    def __init__(self, detector_adapter):
+    def __init__(self, detector_adapter, allowed_classes: Optional[List[str]] = None, min_conf: Optional[float] = None):
         self._detector = detector_adapter
+        # lista de clases permitidas en minúsculas; None o vacía implica sin filtro
+        self._allowed = [c.strip().lower() for c in (allowed_classes or []) if c and str(c).strip()]
+        self._min_conf = float(min_conf) if min_conf is not None else None
 
     def detect(self, frame, roi: Optional[Tuple[int, int, int, int]] = None) -> List[BoundingBox]:
         """Detect objects on a frame.
@@ -22,6 +25,10 @@ class DetectObjectsUseCase:
             x, y, w, h = roi
             roi_frame = frame[y:y + h, x:x + w]
             boxes = self._detector.detect(roi_frame)
+            if self._allowed:
+                boxes = [b for b in boxes if (b.cls or "").strip().lower() in self._allowed]
+            if self._min_conf is not None:
+                boxes = [b for b in boxes if (getattr(b, 'conf', None) or 0.0) >= self._min_conf]
             # translate boxes back to global coordinates
             translated = []
             for b in boxes:
@@ -30,7 +37,12 @@ class DetectObjectsUseCase:
                 )
             return translated
         else:
-            return self._detector.detect(frame)
+            boxes = self._detector.detect(frame)
+            if self._allowed:
+                boxes = [b for b in boxes if (b.cls or "").strip().lower() in self._allowed]
+            if self._min_conf is not None:
+                boxes = [b for b in boxes if (getattr(b, 'conf', None) or 0.0) >= self._min_conf]
+            return boxes
 
     @staticmethod
     def draw_boxes(frame, boxes: List[BoundingBox]):
