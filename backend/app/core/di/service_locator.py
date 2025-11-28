@@ -23,6 +23,15 @@ from app.domain.usecases.read_license_plate_usecase import ReadLicensePlateUseCa
 from app.data.adapters.ernie_client import ErnieClient
 from app.data.repositories.ernie_repository_impl import ErnieRepositoryImpl
 from app.domain.usecases.ask_ernie_usecase import AskErnieUseCase
+from app.domain.repositories.bus_report_repository import BusReportRepository
+from app.data.repositories.bus_report_repository_sqlalchemy import BusReportRepositorySqlAlchemy
+from app.domain.usecases.bus_reports_usecases import (
+    CreateBusReportUseCase,
+    GetBusReportUseCase,
+    ListBusReportsUseCase,
+    UpdateBusReportUseCase,
+    DeleteBusReportUseCase,
+)
 
 
 class ServiceLocator:
@@ -48,6 +57,12 @@ class ServiceLocator:
     _paddle_ocr_adapter: Optional[PaddleOcrAdapter] = None
     _lp_ocr_repo: Optional[LicensePlateOcrRepositoryImpl] = None
     _lp_read_usecase: Optional[ReadLicensePlateUseCase] = None
+    _bus_repo: Optional[BusReportRepository] = None
+    _bus_create_uc: Optional[CreateBusReportUseCase] = None
+    _bus_get_uc: Optional[GetBusReportUseCase] = None
+    _bus_list_uc: Optional[ListBusReportsUseCase] = None
+    _bus_update_uc: Optional[UpdateBusReportUseCase] = None
+    _bus_delete_uc: Optional[DeleteBusReportUseCase] = None
 
     @classmethod
     def config(cls) -> EnvironmentConfig:
@@ -88,7 +103,7 @@ class ServiceLocator:
         if cls._detect_usecase is None:
             cfg = cls.config()
             allowed = [c.strip() for c in (cfg.detect_allowed_classes or "").split(",") if c.strip()]
-            cls._detect_usecase = DetectObjectsUseCase(detector_adapter=cls.detector_adapter(), allowed_classes=allowed)
+            cls._detect_usecase = DetectObjectsUseCase(detector_adapter=cls.detector_adapter(), allowed_classes=allowed, min_conf=cfg.detect_min_conf)
         return cls._detect_usecase
 
     @classmethod
@@ -96,7 +111,7 @@ class ServiceLocator:
         if cls._segment_usecase is None:
             cfg = cls.config()
             allowed = [c.strip() for c in (cfg.segment_allowed_classes or "").split(",") if c.strip()]
-            cls._segment_usecase = SegmentObjectsUseCase(detector_adapter=cls.detector_adapter(), allowed_classes=allowed)
+            cls._segment_usecase = SegmentObjectsUseCase(detector_adapter=cls.detector_adapter(), allowed_classes=allowed, min_conf=cfg.segment_min_conf)
         return cls._segment_usecase
 
     @classmethod
@@ -216,3 +231,40 @@ class ServiceLocator:
         if cls._ask_ernie_usecase is None:
             cls._ask_ernie_usecase = AskErnieUseCase(repository=cls.ernie_repo())
         return cls._ask_ernie_usecase
+
+    # Bus reports bindings
+    @classmethod
+    def bus_report_repo(cls) -> BusReportRepository:
+        if cls._bus_repo is None:
+            cls._bus_repo = BusReportRepositorySqlAlchemy()
+        return cls._bus_repo
+
+    @classmethod
+    def create_bus_report_usecase(cls) -> CreateBusReportUseCase:
+        if cls._bus_create_uc is None:
+            cls._bus_create_uc = CreateBusReportUseCase(repo=cls.bus_report_repo())
+        return cls._bus_create_uc
+
+    @classmethod
+    def get_bus_report_usecase(cls) -> GetBusReportUseCase:
+        if cls._bus_get_uc is None:
+            cls._bus_get_uc = GetBusReportUseCase(repo=cls.bus_report_repo())
+        return cls._bus_get_uc
+
+    @classmethod
+    def list_bus_reports_usecase(cls) -> ListBusReportsUseCase:
+        if cls._bus_list_uc is None:
+            cls._bus_list_uc = ListBusReportsUseCase(repo=cls.bus_report_repo())
+        return cls._bus_list_uc
+
+    @classmethod
+    def update_bus_report_usecase(cls) -> UpdateBusReportUseCase:
+        if cls._bus_update_uc is None:
+            cls._bus_update_uc = UpdateBusReportUseCase(repo=cls.bus_report_repo())
+        return cls._bus_update_uc
+
+    @classmethod
+    def delete_bus_report_usecase(cls) -> DeleteBusReportUseCase:
+        if cls._bus_delete_uc is None:
+            cls._bus_delete_uc = DeleteBusReportUseCase(repo=cls.bus_report_repo())
+        return cls._bus_delete_uc

@@ -1,4 +1,5 @@
 from typing import Optional, Tuple, Dict, List
+from datetime import datetime
 
 import cv2
 import os
@@ -26,7 +27,10 @@ except Exception:
     _urllib3_available = False
 
 from app.core.di.service_locator import ServiceLocator
+from app.core.utils.motion_gate import MotionGate
+from app.core.utils.snapshot_scheduler import SnapshotScheduler
 from app.core.utils.logger import get_logger
+from app.core.utils.license_plate_utils import normalize_license_plate
 
 
 router = APIRouter(prefix="/api/v1/video", tags=["video"])
@@ -82,11 +86,13 @@ def mjpeg_generator(video_source, roi: Optional[str] = None, fps: Optional[float
     use_ffmpeg = False
     is_file = False
     is_url = False
+    is_hls = False
     if isinstance(src, str):
         lower = src.lower()
         is_file = lower.endswith((".mp4", ".avi", ".mov", ".mkv")) or os.path.isfile(src)
         is_url = lower.startswith("rtsp://") or lower.startswith("http://") or lower.startswith("https://")
         use_ffmpeg = is_url or is_file
+        is_hls = lower.endswith(".m3u8")
 
     # Abrir captura con backend apropiado
     cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG) if use_ffmpeg else cv2.VideoCapture(src)
@@ -110,6 +116,45 @@ def mjpeg_generator(video_source, roi: Optional[str] = None, fps: Optional[float
     is_segment_task = (cfg.model_task.lower() == "segment")
     detect_usecase = ServiceLocator.detect_usecase()
     segment_usecase = ServiceLocator.segment_usecase() if is_segment_task else None
+
+    # Motion gating and snapshot scheduler only for HLS streams (performance optimization)
+    motion_gate = MotionGate() if is_hls else None
+    # Callback para procesar cada snapshot: leer placa y registrar bus_report si formato válido
+    def _on_snapshot(path: str):
+        try:
+            logger.info("Snapshot capturado: %s", path)
+            lp_resp = ServiceLocator.read_license_plate_usecase().execute(image_url=path, conf=0.25, imgsz=None, roi=None)
+            plate = normalize_license_plate(lp_resp.text)
+            if plate:
+                try:
+                    ServiceLocator.create_bus_report_usecase().execute(
+                        license_plate=plate,
+                        event_datetime=datetime.utcnow(),
+                        damages=[],
+                    )
+                    logger.info("BusReport creado desde snapshot: %s", plate)
+                except Exception:
+                    # Evitar que errores de DB bloqueen el streaming
+                    pass
+        except Exception:
+            # Evitar que errores de OCR/detección bloqueen el streaming
+            pass
+
+    # Habilitar snapshots en HLS o en cualquier fuente si la bandera está activa
+    enable_snapshots = is_hls or bool(getattr(cfg, "snapshot_enable_all_sources", False))
+    snapshots = (
+        SnapshotScheduler(
+            save_dir=cfg.snapshot_save_dir,
+            interval_seconds=cfg.snapshot_interval_seconds,
+            max_count=cfg.snapshot_max_count,
+            prefix="bus",
+            on_snapshot=_on_snapshot,
+        )
+        if enable_snapshots
+        else None
+    )
+    # Parse ROI once
+    roi_rect = parse_roi(roi)
 
     try:
         while True:
@@ -137,14 +182,49 @@ def mjpeg_generator(video_source, roi: Optional[str] = None, fps: Optional[float
 
             # Detección o segmentación y overlay
             if is_segment_task and segment_usecase is not None:
+                # Mantener comportamiento de segmentación actual
                 instances = segment_usecase.segment(frame, roi=roi_rect)
                 SegmentObjectsUseCase = type(segment_usecase)
-                # Draw masks and optional bounding boxes around masks based on environment config
                 SegmentObjectsUseCase.draw_masks(frame, instances, alpha=0.4, draw_bboxes=cfg.segment_draw_bbox)
             else:
-                boxes = detect_usecase.detect(frame, roi=roi_rect)
-                DetectObjectsUseCase = type(detect_usecase)  # acceso al método estático
-                DetectObjectsUseCase.draw_boxes(frame, boxes)
+                # Para HLS: aplicar gating por movimiento antes de activar YOLO
+                run_detection = True
+                if motion_gate is not None:
+                    try:
+                        run_detection = motion_gate.should_trigger(
+                            frame,
+                            roi=roi_rect,
+                            threshold=float(cfg.motion_change_threshold),
+                        )
+                    except Exception:
+                        # Si gating falla, continuar con detección para no perder funcionalidad
+                        run_detection = True
+
+                boxes = []
+                if run_detection:
+                    boxes = detect_usecase.detect(frame, roi=roi_rect)
+                    DetectObjectsUseCase = type(detect_usecase)  # acceso al método estático
+                    DetectObjectsUseCase.draw_boxes(frame, boxes)
+
+                # Scheduler de snapshots: si se detecta bus con conf > umbral, iniciar captura
+                if snapshots is not None:
+                    try:
+                        if run_detection and boxes:
+                            bus_detected = any(
+                                getattr(b, "cls", "").lower() == "bus"
+                                and float(getattr(b, "conf", 0.0)) >= float(cfg.snapshot_detect_min_conf)
+                                for b in boxes
+                            )
+                            if bus_detected and not snapshots.active:
+                                logger.info("SnapshotScheduler: trigger por detección de bus (conf>=%.2f)", float(cfg.snapshot_detect_min_conf))
+                                snapshots.trigger(prefix="bus")
+                        # Procesar captura si está activo
+                        saved = snapshots.process(frame)
+                        if saved:
+                            logger.info("SnapshotScheduler: snapshot guardado en %s", cfg.snapshot_save_dir)
+                    except Exception:
+                        # silencioso: no bloquear el streaming por fallos de snapshot
+                        pass
 
             # Encode JPEG
             ok, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])

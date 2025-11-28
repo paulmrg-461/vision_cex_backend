@@ -13,3 +13,20 @@ services:
       - ../.env
     volumes:
       - ../:/app
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USER:-vision_cex}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-vision_cex_pwd}
+      - POSTGRES_DB=${DB_NAME:-vision_cex}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

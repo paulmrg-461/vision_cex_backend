@@ -37,8 +37,22 @@ class EnvironmentConfig:
     segment_draw_bbox: bool = os.getenv("SEGMENT_DRAW_BBOX", "true").lower() in ("1", "true", "yes", "on")
     # Clases permitidas para segmentación (lista separada por comas). Ejemplo: "bus,person"
     segment_allowed_classes: str = os.getenv("SEGMENT_ALLOWED_CLASSES", "bus")
+    # Confianza mínima adicional para el filtro de segmentación (post-procesado en UseCase)
+    segment_min_conf: float = float(os.getenv("SEGMENT_MIN_CONF", "0.5"))
     # Clases permitidas para detección (lista separada por comas). Ejemplo: "bus,truck"
     detect_allowed_classes: str = os.getenv("DETECT_ALLOWED_CLASSES", "bus")
+    # Confianza mínima adicional para el filtro de detección (post-procesado en UseCase)
+    detect_min_conf: float = float(os.getenv("DETECT_MIN_CONF", "0.5"))
+    # Motion gating (HLS performance): threshold ratio [0..1] to trigger detection
+    motion_change_threshold: float = float(os.getenv("MOTION_CHANGE_THRESHOLD", "0.35"))
+    # Snapshot settings for bus detection events
+    snapshot_interval_seconds: float = float(os.getenv("SNAPSHOT_INTERVAL_SECONDS", "0.3"))
+    snapshot_max_count: int = int(os.getenv("SNAPSHOT_MAX_COUNT", "10"))
+    snapshot_save_dir: str = os.getenv("SNAPSHOT_SAVE_DIR", "/app/samples/snapshots")
+    # Confidence threshold to trigger snapshots on bus detection
+    snapshot_detect_min_conf: float = float(os.getenv("SNAPSHOT_DETECT_MIN_CONF", "0.5"))
+    # Enable snapshots for all sources (not only HLS). Default false for performance.
+    snapshot_enable_all_sources: bool = os.getenv("SNAPSHOT_ENABLE_ALL_SOURCES", "false").lower() in ("1", "true", "yes", "on")
     # DeepSeek integration
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_api_base: str = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
@@ -51,4 +65,66 @@ class EnvironmentConfig:
     hf_vqa_mode: str = os.getenv("HF_VQA_MODE", "api")
     # Hugging Face captioning
     hf_caption_model: str = os.getenv("HF_CAPTION_MODEL", "Salesforce/blip-image-captioning-base")
+
+    # Database configuration (Postgres)
+    db_host: str = os.getenv("DB_HOST", "postgres")
+    db_port: int = int(os.getenv("DB_PORT", "5432"))
+    db_user: str = os.getenv("DB_USER", "vision_cex")
+    db_password: str = os.getenv("DB_PASSWORD", "vision_cex_pwd")
+    db_name: str = os.getenv("DB_NAME", "vision_cex")
     hf_caption_mode: str = os.getenv("HF_CAPTION_MODE", "local")
+
+    def __post_init__(self):
+        """Resolve env overrides at instantiation time.
+        Dataclass defaults are evaluated at module import, so runtime env changes
+        (e.g., in tests via monkeypatch) would not be reflected without this.
+        This method updates only the motion gating and snapshot-related settings
+        to honor current environment variables.
+        """
+        # Motion gating threshold
+        val = os.getenv("MOTION_CHANGE_THRESHOLD")
+        if val is not None:
+            try:
+                self.motion_change_threshold = float(val)
+            except Exception:
+                pass
+
+        # Snapshot interval seconds
+        val = os.getenv("SNAPSHOT_INTERVAL_SECONDS")
+        if val is not None:
+            try:
+                self.snapshot_interval_seconds = float(val)
+            except Exception:
+                pass
+
+        # Snapshot max count
+        val = os.getenv("SNAPSHOT_MAX_COUNT")
+        if val is not None:
+            try:
+                self.snapshot_max_count = int(val)
+            except Exception:
+                pass
+
+        # Snapshot save directory
+        val = os.getenv("SNAPSHOT_SAVE_DIR")
+        if val is not None:
+            self.snapshot_save_dir = val
+
+        # Snapshot detection min confidence
+        val = os.getenv("SNAPSHOT_DETECT_MIN_CONF")
+        if val is not None:
+            try:
+                conf = float(val)
+                # Keep within [0.0, 1.0] if possible
+                if 0.0 <= conf <= 1.0:
+                    self.snapshot_detect_min_conf = conf
+            except Exception:
+                pass
+
+        # Snapshot enable for all sources
+        val = os.getenv("SNAPSHOT_ENABLE_ALL_SOURCES")
+        if val is not None:
+            try:
+                self.snapshot_enable_all_sources = str(val).lower() in ("1", "true", "yes", "on")
+            except Exception:
+                pass

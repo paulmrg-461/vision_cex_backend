@@ -249,6 +249,52 @@ tests/
 
 ### **7. Ejecución con Docker y docker-compose (obligatoria)**
 
+#### Base de datos PostgreSQL
+- El proyecto integra una base de datos `PostgreSQL` orquestada por `docker-compose`.
+- Credenciales por defecto vía variables de entorno (configurables en `.env`):
+  - `DB_HOST` (default `postgres`)
+  - `DB_PORT` (default `5432`)
+  - `DB_USER` (default `vision_cex`)
+  - `DB_PASSWORD` (default `vision_cex_pwd`)
+  - `DB_NAME` (default `vision_cex`)
+
+Esquema principal creado al iniciar el backend:
+```
+CREATE TABLE IF NOT EXISTS bus_reports (
+  id SERIAL PRIMARY KEY,
+  license_plate VARCHAR(6) NOT NULL,
+  event_datetime TIMESTAMPTZ NOT NULL,
+  damages JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_bus_reports_plate ON bus_reports (license_plate);
+CREATE INDEX IF NOT EXISTS idx_bus_reports_event ON bus_reports (event_datetime);
+```
+
+Capas según Clean Architecture para la feature `bus_reports`:
+- `domain/entities/BusReport`: entidad de dominio.
+- `domain/repositories/BusReportRepository`: contrato de acceso a datos.
+- `domain/usecases/*BusReportsUseCase`: casos de uso CRUD.
+- `data/models/BusReportModel`: modelo declarativo SQLAlchemy (JSONB, índices, check).
+- `data/repositories/BusReportRepositorySqlAlchemy`: implementación ORM.
+- `presentation/api/v1/bus_report_router.py`: endpoints REST.
+- `core/di/service_locator.py`: inyección de dependencias para repo y casos de uso.
+
+Endpoints:
+- `POST /api/v1/bus_reports/` crear reporte.
+- `GET /api/v1/bus_reports/{id}` obtener por id.
+- `GET /api/v1/bus_reports/` listar con `limit` y `offset`.
+- `PUT /api/v1/bus_reports/{id}` actualizar.
+- `DELETE /api/v1/bus_reports/{id}` eliminar.
+
+Validaciones:
+- `license_plate` debe cumplir el formato colombiano `ABC123` (regex `^[A-Z]{3}[0-9]{3}$`).
+- `damages` se almacena como `JSONB` (por defecto `[]`).
+
+Notas sobre ORM:
+- Se utiliza `SQLAlchemy 2.x` con `psycopg2` como driver.
+- `Base.metadata.create_all` asegura que las tablas existan en el arranque del repositorio.
+- El acceso a BD pasa por `SessionLocal` con `pool_pre_ping` para robustez.
+
 #### Prerrequisitos (host)
 - Docker Desktop (o Docker Engine) y Docker Compose.
 - NVIDIA GPU y drivers con **NVIDIA Container Toolkit** para habilitar CUDA dentro del contenedor. En Windows, asegúrate de tener WSL2 habilitado y soporte de GPU en Docker Desktop.

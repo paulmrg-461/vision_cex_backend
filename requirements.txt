@@ -19,3 +19,6 @@ sentencepiece
 shapely==2.0.4
 paddlepaddle==2.6.2
 paddleocr==2.7.0
+psycopg2-binary==2.9.9
+pytest==7.4.4
+SQLAlchemy>=2.0.34

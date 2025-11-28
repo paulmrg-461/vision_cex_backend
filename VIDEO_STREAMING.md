@@ -78,6 +78,19 @@ Este documento describe de forma detallada cómo el backend "Vision CEX" captura
 
 - `GET /api/v1/video/hls/stream`
   - Igual que `stream`, pero tomando HLS directo/HTML sin modificar la fuente global.
+  - Optimización integrada: gating por movimiento usando `cv2.BackgroundSubtractorMOG2`.
+    - Si la variación de píxeles excede 35% en el frame (o ROI), se activa YOLO para detección.
+    - Si se detecta la clase `bus` con confianza > 0.5, se capturan snapshots parametrizables (cantidad e intervalo) y se guardan en el directorio configurado.
+
+### Snapshots en cualquier fuente
+
+Por defecto los snapshots solo se activan en streams HLS para proteger el rendimiento. Si necesitas capturas en cualquier fuente (RTSP, archivo MP4, URLs que no terminan en `.m3u8`), habilita la bandera de entorno:
+
+```
+SNAPSHOT_ENABLE_ALL_SOURCES=true
+```
+
+Con esta bandera, el `SnapshotScheduler` se creará para cualquier tipo de fuente y se disparará cuando se detecte `bus` con la confianza mínima configurada. El gating de movimiento sigue aplicándose únicamente a HLS.
 
 - Gestión de múltiples fuentes en memoria
   - `GET /api/v1/video/sources` lista fuentes registradas.
@@ -98,6 +111,10 @@ Este documento describe de forma detallada cómo el backend "Vision CEX" captura
     - Según `cfg.model_task`:
       - `segment`: usa `SegmentObjectsUseCase.segment(...)` y `draw_masks(...)`.
       - `detect`: usa `DetectObjectsUseCase.detect(...)` y `draw_boxes(...)`.
+      - En HLS (`.m3u8`): para mejorar rendimiento, se aplica **detección condicionada por movimiento** (gating):
+        - Se evalúa el porcentaje de píxeles en movimiento con `BackgroundSubtractorMOG2`.
+        - Solo si el cambio supera 35% se activa la detección.
+        - Ante detección de `bus` con `conf > 0.5`, se inicia un scheduler de snapshots (10 capturas, cada 0.3s) en `/app/samples/snapshots`.
   - Codificación:
     - JPEG con calidad 80 (`cv2.imencode`) y envío multipart `multipart/x-mixed-replace; boundary=frame`.
 
@@ -129,6 +146,17 @@ Este documento describe de forma detallada cómo el backend "Vision CEX" captura
 - `SEGMENT_ALLOWED_CLASSES`: lista separada por comas de clases permitidas en segmentación. Por ejemplo `bus` para que solo se muestren máscaras de buses. Por defecto: `bus`.
 - `DETECT_ALLOWED_CLASSES`: lista separada por comas de clases permitidas en detección. Útil cuando `MODEL_TASK=detect`. Por ejemplo `bus` para que solo se dibujen cajas de buses. Por defecto: `bus`.
 - `video_source`: fuente inicial (p. ej. `samples/Video1.mp4`).
+
+> Notas de optimización HLS:
+> - El gating por movimiento está habilitado automáticamente cuando la fuente es HLS (`.m3u8`).
+> - Variables `.env` para parametrizar:
+>   - `MOTION_CHANGE_THRESHOLD` (por defecto `0.35`).
+>   - `SNAPSHOT_INTERVAL_SECONDS` (por defecto `0.3`).
+>   - `SNAPSHOT_MAX_COUNT` (por defecto `10`).
+>   - `SNAPSHOT_SAVE_DIR` (por defecto `/app/samples/snapshots`).
+>   - `SNAPSHOT_DETECT_MIN_CONF` (por defecto `0.5`): confianza mínima para disparar snapshots.
+>   - `SNAPSHOT_ENABLE_ALL_SOURCES` (por defecto `false`): habilita snapshots también en RTSP/archivo/URLs que no terminen en `.m3u8`.
+> - Las capturas se guardan en `SNAPSHOT_SAVE_DIR`; asegúrate de montar `/app` como volumen en Docker para persistencia.
 
 > Nota: La apertura de URLs y archivos se realiza con FFMPEG (`cv2.CAP_FFMPEG`) cuando corresponde.
 
@@ -175,6 +203,7 @@ curl -X GET "http://localhost:8000/api/v1/video/stream?roi=320,200,640,480&fps=2
 ```bash
 # .env
 SEGMENT_ALLOWED_CLASSES=bus
+SEGMENT_MIN_CONF=0.5
 MODEL_TASK=segment
 MODEL_BACKEND=ultralytics
 YOLO_WEIGHTS=/app/backend/weights/yolov8n-seg.pt

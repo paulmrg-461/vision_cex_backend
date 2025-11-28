@@ -11,10 +11,11 @@ class SegmentObjectsUseCase:
     Delegates inference to a detector/segmenter adapter injected via DI.
     """
 
-    def __init__(self, detector_adapter, allowed_classes: Optional[List[str]] = None):
+    def __init__(self, detector_adapter, allowed_classes: Optional[List[str]] = None, min_conf: Optional[float] = None):
         self._detector = detector_adapter
         # lista de clases permitidas en minúsculas; None o vacía implica sin filtro
         self._allowed = [c.strip().lower() for c in (allowed_classes or []) if c and str(c).strip()]
+        self._min_conf = float(min_conf) if min_conf is not None else None
 
     def segment(self, frame, roi: Optional[Tuple[int, int, int, int]] = None) -> List[SegmentationObject]:
         """Run instance segmentation on a frame.
@@ -27,6 +28,8 @@ class SegmentObjectsUseCase:
             objs = self._detector.segment(roi_frame) if hasattr(self._detector, 'segment') else []
             if self._allowed:
                 objs = [o for o in objs if (o.cls or "").strip().lower() in self._allowed]
+            if self._min_conf is not None:
+                objs = [o for o in objs if (getattr(o, 'conf', None) or 0.0) >= self._min_conf]
             translated: List[SegmentationObject] = []
             for o in objs:
                 # translate polygon points back to global coordinates
@@ -41,6 +44,8 @@ class SegmentObjectsUseCase:
             objs = self._detector.segment(frame) if hasattr(self._detector, 'segment') else []
             if self._allowed:
                 objs = [o for o in objs if (o.cls or "").strip().lower() in self._allowed]
+            if self._min_conf is not None:
+                objs = [o for o in objs if (getattr(o, 'conf', None) or 0.0) >= self._min_conf]
             return objs
 
     @staticmethod
